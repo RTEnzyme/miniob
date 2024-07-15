@@ -497,12 +497,12 @@ RC PaxRecordPageHandler::get_record(const RID &rid, Record &record)
  // 获取 bitmap
   Bitmap bitmap(bitmap_, page_header_->record_capacity);
   if (!bitmap.get_bit(rid.slot_num)) {
-    // LOG_ERROR("Invalid slot_num:%d, slot is empty, page_num %d.", rid.slot_num, frame_->page_num());
+    LOG_ERROR("Invalid slot_num:%d, slot is empty, page_num %d.", rid.slot_num, frame_->page_num());
     return RC::RECORD_NOT_EXIST;
   }
 
   record.set_rid(rid);
-  char *record_data = new char[page_header_->record_real_size];
+  char* record_data = (char *)malloc(page_header_->record_real_size);
   int offset = 0;
   for (int col_index = 0; col_index < page_header_->column_num; ++col_index) {
     char *data = get_field_data(rid.slot_num, col_index);
@@ -510,7 +510,7 @@ RC PaxRecordPageHandler::get_record(const RID &rid, Record &record)
     memcpy(record_data + offset, data, field_len);
     offset += field_len;
   }
-  record.set_data(record_data, page_header_->record_real_size);
+  record.set_data_owner(record_data, page_header_->record_real_size);
   return RC::SUCCESS;
 }
 
