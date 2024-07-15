@@ -531,8 +531,7 @@ RC PaxRecordPageHandler::get_chunk(Chunk &chunk)
     int col_id = chunk.column_ids(col_index);
     // 遍历 index_v
     for (int i = 0; i < index_v.size(); ++i) {
-      char *data = get_field_data(index_v[i], col_id);
-      col->append_one(data);
+      col->append_one(get_field_data(index_v[i], col_id));
     }
   }
   return RC::SUCCESS;
