@@ -51,6 +51,7 @@ AggregateVecPhysicalOperator::AggregateVecPhysicalOperator(vector<Expression *> 
       ASSERT(false, "not supported aggregation type");
     }
   }
+  consumed_ = false;
 }
 
 RC AggregateVecPhysicalOperator::open(Trx *trx)
@@ -103,10 +104,14 @@ RC AggregateVecPhysicalOperator::next(Chunk &chunk)
 {
   // TODO
   // 将暂存在哈希表中的聚合结果按 Chunk 格式向上返回
+  if (consumed_) {
+    return RC::INTERNAL;
+  }
   for (size_t aggr_idx = 0; aggr_idx < aggregate_expressions_.size(); aggr_idx++) {
     output_chunk_.column_ptr(aggr_idx)->append_one((char *) aggr_values_.at(aggr_idx));
   }
   chunk.reference(output_chunk_);
+  consumed_ = true;
   return RC::SUCCESS;
 }
 

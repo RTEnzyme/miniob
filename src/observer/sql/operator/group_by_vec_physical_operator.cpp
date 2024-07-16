@@ -50,10 +50,14 @@ RC GroupByVecPhysicalOperator::open(Trx *trx)
 
 RC GroupByVecPhysicalOperator::next(Chunk &chunk)
 {
+    if (consumed_) {
+        return RC::INTERNAL;
+    }
     StandardAggregateHashTable::Scanner scanner(hash_table_.get());
     scanner.open_scan();
     auto rc = scanner.next(output_chunk_);
     rc = chunk.reference(output_chunk_);
+    consumed_ = true;
     return rc;
 }
 
