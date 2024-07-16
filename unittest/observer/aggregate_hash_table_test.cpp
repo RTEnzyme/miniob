@@ -16,7 +16,7 @@ See the Mulan PSL v2 for more details. */
 
 using namespace std;
 
-TEST(AggregateHashTableTest, DISABLED_standard_hash_table)
+TEST(AggregateHashTableTest, standard_hash_table)
 {
   // single group by column, single aggregate column
   {
@@ -41,13 +41,15 @@ TEST(AggregateHashTableTest, DISABLED_standard_hash_table)
     Chunk output_chunk;
     output_chunk.add_column(
         make_unique<Column>(group_chunk.column(0).attr_type(), group_chunk.column(0).attr_len()), 0);
-    output_chunk.add_column(make_unique<Column>(aggr_chunk.column(0).attr_type(), aggr_chunk.column(0).attr_len()), 1);
+    output_chunk.add_column(
+        make_unique<Column>(aggr_chunk.column(0).attr_type(), aggr_chunk.column(0).attr_len()), 1);
     StandardAggregateHashTable::Scanner scanner(standard_hash_table.get());
     scanner.open_scan();
     rc = scanner.next(output_chunk);
     ASSERT_EQ(rc, RC::SUCCESS);
     ASSERT_EQ(output_chunk.rows(), 8);
     for (int i = 0; i < 8; i++) {
+      // 第 1 列是 group by 列，第 0 列是聚合列
       std::cout << "column1: " << output_chunk.get_value(1, i).get_string() << " "
                 << "sum(column2)" << output_chunk.get_value(0, i).get_string() << std::endl;
     }

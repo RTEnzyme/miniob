@@ -14,8 +14,39 @@ See the Mulan PSL v2 for more details. */
 
 RC StandardAggregateHashTable::add_chunk(Chunk &groups_chunk, Chunk &aggrs_chunk)
 {
-  // your code here
-  exit(-1);
+    for (int row_idx = 0; row_idx < groups_chunk.rows(); row_idx++) {
+      std::vector<Value> group_by_row_value;
+      for (int i = 0; i < groups_chunk.column_num(); i++) {
+        group_by_row_value.push_back(groups_chunk.get_value(i, row_idx));
+      }
+      std::vector<Value> aggr_row_value;
+      for (int i = 0; i < aggrs_chunk.column_num(); i++) {
+        aggr_row_value.push_back(aggrs_chunk.get_value(i, row_idx));
+      }
+      // aggr_values_ : 哈希表
+      auto it = aggr_values_.find(group_by_row_value);
+      if (it == end()) {
+        // 新建一个 group_by_row_value
+        aggr_values_[group_by_row_value] = aggr_row_value;
+      } else {
+        auto &aggrs = it->second;
+        for (int i = 0; i < static_cast<int>(aggrs.size()); i++) {
+          auto &aggr = aggrs[i];
+          switch (aggrs[i].attr_type())
+          {
+          case AttrType::INTS:
+            aggr.set_int(aggr.get_int() + aggr_row_value[i].get_int());
+            break;
+          case AttrType::FLOATS:
+            aggr.set_float(aggr.get_float() + aggr_row_value[i].get_float());
+            break;
+          default:
+            break;
+          }
+        }
+      }
+    }
+    return RC::SUCCESS;
 }
 
 void StandardAggregateHashTable::Scanner::open_scan()
@@ -30,8 +61,8 @@ RC StandardAggregateHashTable::Scanner::next(Chunk &output_chunk)
     return RC::RECORD_EOF;
   }
   while (it_ != end_ && output_chunk.rows() <= output_chunk.capacity()) {
-    auto &group_by_values = it_->first;
-    auto &aggrs           = it_->second;
+    auto &group_by_values = it_->first;   // std::vector<Value>
+    auto &aggrs           = it_->second;  // std::vector<Value>
     for (int i = 0; i < output_chunk.column_num(); i++) {
       auto col_idx = output_chunk.column_ids(i);
       if (col_idx >= static_cast<int>(group_by_values.size())) {
