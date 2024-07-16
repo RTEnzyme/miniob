@@ -53,5 +53,5 @@ protected:
 
 protected:
   std::vector<Expression *> aggregate_expressions_;  /// 聚合表达式
-  std::vector<Expression *> value_expressions_;      /// 计算聚合时的表达式
+  std::vector<Expression *> value_expressions_;      /// 计算聚合时的表达式，即 SUM(amount) 中的 amount
 };

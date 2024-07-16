@@ -27,6 +27,7 @@ GroupByPhysicalOperator::GroupByPhysicalOperator(vector<Expression *> &&expressi
   value_expressions_.reserve(aggregate_expressions_.size());
   ranges::for_each(aggregate_expressions_, [this](Expression *expr) {
     auto       *aggregate_expr = static_cast<AggregateExpr *>(expr);
+    // aggregate_expr 的子表达式，就是 value_expressions_ 中的元素
     Expression *child_expr     = aggregate_expr->child().get();
     ASSERT(child_expr != nullptr, "aggregate expression must have a child expression");
     value_expressions_.emplace_back(child_expr);
@@ -61,6 +62,7 @@ RC GroupByPhysicalOperator::aggregate(AggregatorList &aggregator_list, const Tup
       return rc;
     }
 
+    // 集合的结果存在 aggregator_list 中
     rc = aggregator->accumulate(value);
     if (OB_FAIL(rc)) {
       LOG_WARN("failed to accumulate value. rc=%s", strrc(rc));
@@ -71,6 +73,7 @@ RC GroupByPhysicalOperator::aggregate(AggregatorList &aggregator_list, const Tup
   return rc;
 }
 
+// 将分组聚合的结果放到 group_value 的 composite_value_tuple 中
 RC GroupByPhysicalOperator::evaluate(GroupValueType &group_value)
 {
   RC rc = RC::SUCCESS;

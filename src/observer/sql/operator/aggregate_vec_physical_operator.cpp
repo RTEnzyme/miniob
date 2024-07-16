@@ -70,6 +70,7 @@ RC AggregateVecPhysicalOperator::open(Trx *trx)
       value_expressions_[aggr_idx]->get_column(chunk_, column);
       ASSERT(aggregate_expressions_[aggr_idx]->type() == ExprType::AGGREGATION, "expect aggregate expression");
       auto *aggregate_expr = static_cast<AggregateExpr *>(aggregate_expressions_[aggr_idx]);
+      // 聚合操作的类型是 SUM，进一步判断值的类型
       if (aggregate_expr->aggregate_type() == AggregateExpr::Type::SUM) {
         if (aggregate_expr->value_type() == AttrType::INTS) {
           update_aggregate_state<SumState<int>, int>(aggr_values_.at(aggr_idx), column);
@@ -100,8 +101,13 @@ void AggregateVecPhysicalOperator::update_aggregate_state(void *state, const Col
 
 RC AggregateVecPhysicalOperator::next(Chunk &chunk)
 {
-  // your code here
-  exit(-1);
+  // TODO
+  // 将暂存在哈希表中的聚合结果按 Chunk 格式向上返回
+  for (size_t aggr_idx = 0; aggr_idx < aggregate_expressions_.size(); aggr_idx++) {
+    output_chunk_.column_ptr(aggr_idx)->append_one((char *) aggr_values_.at(aggr_idx));
+  }
+  chunk.reference(output_chunk_);
+  return RC::SUCCESS;
 }
 
 RC AggregateVecPhysicalOperator::close()

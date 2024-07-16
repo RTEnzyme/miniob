@@ -20,6 +20,9 @@ See the Mulan PSL v2 for more details. */
 using namespace std;
 using namespace common;
 
+/// @brief 
+/// @param group_by_exprs : group by 表达式
+/// @param expressions : 聚合表达式
 HashGroupByPhysicalOperator::HashGroupByPhysicalOperator(
     vector<unique_ptr<Expression>> &&group_by_exprs, vector<Expression *> &&expressions)
     : GroupByPhysicalOperator(std::move(expressions)), group_by_exprs_(std::move(group_by_exprs))
@@ -135,6 +138,7 @@ RC HashGroupByPhysicalOperator::find_group(const Tuple &child_tuple, GroupType *
   ExpressionTuple<unique_ptr<Expression>> group_by_expression_tuple(group_by_exprs_);
   ValueListTuple                          group_by_evaluated_tuple;
   group_by_expression_tuple.set_tuple(&child_tuple);
+  // 将 group_by_expression_tuple 中的表达式值转换为 ValueListTuple
   rc = ValueListTuple::make(group_by_expression_tuple, group_by_evaluated_tuple);
   if (OB_FAIL(rc)) {
     LOG_WARN("failed to get values from expression tuple. rc=%s", strrc(rc));
