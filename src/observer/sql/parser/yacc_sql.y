@@ -532,9 +532,8 @@ expression:
       $$ = new StarExpr();
     }
     // TODO
-    | ID LBRACE expression RBRACE {
-      $$ = create_aggregate_expression($1, $3, sql_string, &@$);
-      free($1);
+    | SUM LBRACE expression RBRACE {
+      $$ = create_aggregate_expression("sum", $3, sql_string, &@$);
     }
     ;
 

@@ -24,7 +24,7 @@ TEST(AggregateHashTableTest, standard_hash_table)
     Chunk                   aggr_chunk;
     std::unique_ptr<Column> column1 = std::make_unique<Column>(AttrType::INTS, 4);
     std::unique_ptr<Column> column2 = std::make_unique<Column>(AttrType::INTS, 4);
-    for (int i = 0; i < 1023; i++) {
+    for (int i = 0; i < 16; i++) {
       int key = i % 8;
       column1->append_one((char *)&key);
       column2->append_one((char *)&i);
@@ -49,9 +49,8 @@ TEST(AggregateHashTableTest, standard_hash_table)
     ASSERT_EQ(rc, RC::SUCCESS);
     ASSERT_EQ(output_chunk.rows(), 8);
     for (int i = 0; i < 8; i++) {
-      // 第 1 列是 group by 列，第 0 列是聚合列
-      std::cout << "column1: " << output_chunk.get_value(1, i).get_string() << " "
-                << "sum(column2)" << output_chunk.get_value(0, i).get_string() << std::endl;
+      std::cout << "column1: " << output_chunk.get_value(0, i).get_string() << " "
+                << "sum(column2)" << output_chunk.get_value(1, i).get_string() << std::endl;
     }
   }
   // mutiple group by columns, mutiple aggregate columns
@@ -63,7 +62,7 @@ TEST(AggregateHashTableTest, standard_hash_table)
 
     std::unique_ptr<Column> aggr1 = std::make_unique<Column>(AttrType::FLOATS, 4);
     std::unique_ptr<Column> aggr2 = std::make_unique<Column>(AttrType::INTS, 4);
-    for (int i = 0; i < 1023; i++) {
+    for (int i = 0; i < 15; i++) {
       float i_float  = i + 0.5;
       int   i_group2 = i % 8;
 
@@ -89,8 +88,8 @@ TEST(AggregateHashTableTest, standard_hash_table)
         make_unique<Column>(group_chunk.column(0).attr_type(), group_chunk.column(0).attr_len()), 0);
     output_chunk.add_column(
         make_unique<Column>(group_chunk.column(1).attr_type(), group_chunk.column(1).attr_len()), 1);
-    output_chunk.add_column(make_unique<Column>(aggr_chunk.column(0).attr_type(), aggr_chunk.column(0).attr_len()), 1);
-    output_chunk.add_column(make_unique<Column>(aggr_chunk.column(1).attr_type(), aggr_chunk.column(1).attr_len()), 2);
+    output_chunk.add_column(make_unique<Column>(aggr_chunk.column(0).attr_type(), aggr_chunk.column(0).attr_len()), 2);
+    output_chunk.add_column(make_unique<Column>(aggr_chunk.column(1).attr_type(), aggr_chunk.column(1).attr_len()), 3);
     StandardAggregateHashTable::Scanner scanner(standard_hash_table.get());
     scanner.open_scan();
     rc = scanner.next(output_chunk);

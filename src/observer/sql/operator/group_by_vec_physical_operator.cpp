@@ -9,61 +9,54 @@ MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 See the Mulan PSL v2 for more details. */
 
 #include "sql/operator/group_by_vec_physical_operator.h"
+#include <algorithm>
 
 using namespace std;
+using namespace common;
 
-RC GroupByVecPhysicalOperator::open(Trx *trx)
-{
-    ASSERT(children_.size() == 1, "group by operator only support one child, but got %d", children_.size());
-    PhysicalOperator &child = *children_[0];
-    RC                rc    = child.open(trx);
-    if (OB_FAIL(rc)) {
-        LOG_INFO("failed to open child operator. rc=%s", strrc(rc));
-        return rc;
-    }
+GroupByVecPhysicalOperator::GroupByVecPhysicalOperator(
+    std::vector<std::unique_ptr<Expression>> &&group_by_exprs, std::vector<Expression *> &&expressions):
+    group_by_expressions_(std::move(group_by_exprs)),
+    aggregate_expressions_(std::move(expressions)),
+    hash_table_(aggregate_expressions_){
 
-    while (OB_SUCC(rc = child.next(chunk_))) {
-        
-        Chunk aggr_chunk;
-        for (size_t aggr_idx = 0; aggr_idx < aggregate_expressions_.size(); aggr_idx++) {
-            auto column = std::make_unique<Column>();
-            aggregate_expressions_[aggr_idx]->get_column(chunk_, *column);
-            aggr_chunk.add_column(std::move(column), aggr_idx);
+    value_expressions_.reserve(aggregate_expressions_.size());
+
+    ranges::for_each(aggregate_expressions_, [this](Expression *expr) {
+        auto *      aggregate_expr = static_cast<AggregateExpr *>(expr);
+        Expression *child_expr     = aggregate_expr->child().get();
+        ASSERT(child_expr != nullptr, "aggregation expression must have a child expression");
+        value_expressions_.emplace_back(child_expr);
+    });
+
+    // 添加 group by 列
+    for (int i = 0; i< static_cast<int>(group_by_expressions_.size()); i++){
+        auto group_by_expr = group_by_expressions_[i].get();
+        if (group_by_expr->value_type() == AttrType::INTS) {
+        output_chunk_.add_column(make_unique<Column>(AttrType::INTS, 4), i);
+        } else if (group_by_expr->value_type() == AttrType::FLOATS) {
+        output_chunk_.add_column(make_unique<Column>(AttrType::FLOATS, 4), i);
+        } else if (group_by_expr->value_type() == AttrType::CHARS) {
+        output_chunk_.add_column(make_unique<Column>(AttrType::CHARS, group_by_expr->value_length()), i);
+        } else if (group_by_expr->value_type() == AttrType::BOOLEANS) {
+        output_chunk_.add_column(make_unique<Column>(AttrType::BOOLEANS, 1), i);
         }
-                
-        Chunk group_by_chunk;
-        for (size_t group_by_idx = 0; group_by_idx < group_by_expressions_.size(); group_by_idx++) {
-            auto column = std::make_unique<Column>();
-            group_by_expressions_[group_by_idx]->get_column(chunk_, *column);
-            group_by_chunk.add_column(std::move(column), group_by_idx);
+        else {
+        ASSERT(false, "not supported groupby type");
         }
-        
-        hash_table_->add_chunk(group_by_chunk, aggr_chunk);
+    }
+    int group_by_expr_size = static_cast<int>(group_by_expressions_.size());
+
+    // 添加 aggr 列
+    for (int i = 0; i< static_cast<int>(aggregate_expressions_.size()); i++){
+        auto aggregate_expr = static_cast<AggregateExpr *>(aggregate_expressions_[i]);
+        if (aggregate_expr->value_type() == AttrType::INTS) {
+        output_chunk_.add_column(make_unique<Column>(AttrType::INTS, 4), i+group_by_expr_size);
+        } else if (aggregate_expr->value_type() == AttrType::FLOATS) {
+        output_chunk_.add_column(make_unique<Column>(AttrType::FLOATS, 4), i+group_by_expr_size);
+        }else {
+        ASSERT(false, "not supported aggregation type");
+        }
     }
 
-    if (rc == RC::RECORD_EOF) {
-        rc = RC::SUCCESS;
-    }
-
-    return rc;
-}
-
-RC GroupByVecPhysicalOperator::next(Chunk &chunk)
-{
-    if (consumed_) {
-        return RC::INTERNAL;
-    }
-    StandardAggregateHashTable::Scanner scanner(hash_table_.get());
-    scanner.open_scan();
-    auto rc = scanner.next(output_chunk_);
-    rc = chunk.reference(output_chunk_);
-    consumed_ = true;
-    return rc;
-}
-
-RC GroupByVecPhysicalOperator::close()
-{
-  children_[0]->close();
-  LOG_INFO("close group by operator");
-  return RC::SUCCESS;
-}
+};
