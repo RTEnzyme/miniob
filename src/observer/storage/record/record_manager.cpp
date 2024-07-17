@@ -441,7 +441,6 @@ RC PaxRecordPageHandler::insert_record(const char *data, RID *rid)
   }
 
   // 获取 column_index
-  // int *column_index = reinterpret_cast<int *>(frame_->data() + page_header_->col_idx_offset);
   int offset = 0;
   for (int col_index = 0; col_index < page_header_->column_num; ++col_index) {
     char *field_data = get_field_data(index, col_index);
@@ -517,22 +516,15 @@ RC PaxRecordPageHandler::get_record(const RID &rid, Record &record)
 // TODO3: specify the column_ids that chunk needed. currenly we get all columns
 RC PaxRecordPageHandler::get_chunk(Chunk &chunk)
 {
-  // chunk.column_num() < page_header_->column_num
   Bitmap bitmap(bitmap_, page_header_->record_capacity);
-  int start = 0;
-  std::vector<int> index_v;
-  // 找到所有非零位的下标
-  while (bitmap.next_setted_bit(start) != -1) {
-    index_v.push_back(bitmap.next_setted_bit(start));
-    start = bitmap.next_setted_bit(start) + 1;
-  }
-  for (int col_index = 0; col_index < chunk.column_num(); ++col_index) {
-    Column *col = chunk.column_ptr(col_index);
-    int col_id = chunk.column_ids(col_index);
-    // 遍历 index_v
-    for (int i = 0; i < index_v.size(); ++i) {
-      col->append_one(get_field_data(index_v[i], col_id));
+  int offset = bitmap.next_setted_bit(0);
+  while (offset != -1) {
+    for (int col_index = 0; col_index < chunk.column_num(); ++col_index) {
+      auto *col = chunk.column_ptr(col_index);
+      auto col_id = chunk.column_ids(col_index);
+      col->append_one(get_field_data(offset, col_id));
     }
+    offset = bitmap.next_setted_bit(offset + 1);  
   }
   return RC::SUCCESS;
 }
