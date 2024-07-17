@@ -22,22 +22,64 @@ int mm256_extract_epi32_var_indx(const __m256i vec, const unsigned int i)
 
 int mm256_sum_epi32(const int *values, int size)
 {
-  // your code here
-  int sum = 0;
-  for (int i = 0; i < size; i++) {
-    sum += values[i];
-  }
-  return sum;
+    // TODO
+    // 定义用于存储 部分和 的AVX向量
+    __m256i vec_sum = _mm256_setzero_si256();
+
+    // 每次处理8个整数
+    int i = 0;
+    for (; i <= size - 8; i += 8) {
+        __m256i vec_values = _mm256_loadu_si256((__m256i const *)(values + i));
+        vec_sum = _mm256_add_epi32(vec_sum, vec_values);
+    }
+
+    // 将 AVX 向量中的部分和提取到数组中
+    alignas(32) int sums[8];
+    _mm256_store_si256((__m256i *)sums, vec_sum);
+
+    // 将数组中的部分和累加到最终结果
+    int sum = 0;
+    for (int j = 0; j < 8; ++j) {
+        sum += sums[j];
+    }
+
+    // 处理剩余未对齐的整数
+    for (; i < size; ++i) {
+        sum += values[i];
+    }
+
+    return sum;
 }
 
 float mm256_sum_ps(const float *values, int size)
 {
-  // your code here
-  float sum = 0;
-  for (int i = 0; i < size; i++) {
-    sum += values[i];
-  }
-  return sum;
+    // TODO
+    // 定义用于存储部分和的AVX向量
+    __m256 vec_sum = _mm256_setzero_ps();
+
+    // 每次处理8个浮点数
+    int i = 0;
+    for (; i <= size - 8; i += 8) {
+        __m256 vec_values = _mm256_loadu_ps(values + i);
+        vec_sum = _mm256_add_ps(vec_sum, vec_values);
+    }
+
+    // 将AVX向量中的部分和提取到数组中
+    alignas(32) float sums[8];
+    _mm256_store_ps(sums, vec_sum);
+
+    // 将数组中的部分和累加到最终结果
+    float sum = 0;
+    for (int j = 0; j < 8; ++j) {
+        sum += sums[j];
+    }
+
+    // 处理剩余未对齐的浮点数
+    for (; i < size; ++i) {
+        sum += values[i];
+    }
+
+    return sum;
 }
 
 template <typename V>
@@ -47,7 +89,7 @@ void selective_load(V *memory, int offset, V *vec, __m256i &inv)
   for (int i = 0; i < SIMD_WIDTH; i++) {
     if (inv_ptr[i] == -1) {
       vec[i] = memory[offset++];
-    }
+    } 
   }
 }
 template void selective_load<uint32_t>(uint32_t *memory, int offset, uint32_t *vec, __m256i &inv);

@@ -17,6 +17,7 @@ using namespace std;
 
 TEST(ArithmeticTest, arithmetic_test)
 {
+  std::cout << "arithmetic_test" << std::endl;
   // compare column
   {
     int                  size = 100;
@@ -86,6 +87,7 @@ TEST(ArithmeticTest, arithmetic_test)
 // sum
 #ifdef USE_SIMD
   {
+    std::cout << "USE_SIMD" << std::endl;
     int              size = 100;
     std::vector<int> a(size, 0);
     for (int i = 0; i < size; i++) {
