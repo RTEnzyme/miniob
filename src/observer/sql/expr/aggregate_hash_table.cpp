@@ -294,7 +294,10 @@ void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_val
   int i = 0;
   int tmp_keys[SIMD_WIDTH];
   V tmp_values[SIMD_WIDTH];
-
+  int mask = capacity_ - 1;
+  __m256i vec_mask = _mm256_set1_epi32(mask);
+  __m256i vec_empty_keys = _mm256_set1_epi32(EMPTY_KEY);
+  
   for (; i + SIMD_WIDTH <= len;) {
     // std::cout << "i: " << i << std::endl;
     // 读数据
@@ -302,51 +305,42 @@ void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_val
     __m256i vec_input_keys = _mm256_loadu_si256((__m256i const *)tmp_keys);
     
     selective_load(input_values, i, tmp_values, inv);
-    __m256i vec_input_values = _mm256_loadu_si256((__m256i const *)tmp_values);
-
-
+    // __m256i vec_input_values = _mm256_loadu_si256((__m256i const *)tmp_values);
 
     // 计算哈希
-    __m256i vec_idx = calculate_hash_and_mod(vec_input_keys, capacity_);
+    __m256i vec_idx = _mm256_and_si256(vec_input_keys, vec_mask);
     // vec_idx = vec_idx + off
     vec_idx = _mm256_add_epi32(vec_idx, off);
 
     // 从 keys_ 和 values_ 中取出 key 和 value
     int* keys_ptr = keys_.data();
     __m256i vec_keys_get = _mm256_i32gather_epi32(keys_ptr, vec_idx, 4);
-
-
     // V* values_ptr = values_.data();
     // __m256i vec_values_get = _mm256_i32gather_epi32(values_ptr, vec_idx, 4); // float 和 int 都是 4 字节
 
     // 检测是否为 EMPTY_KEY => -1
-    __m256i vec_empty_keys = _mm256_set1_epi32(EMPTY_KEY);
-    __m256i vec_cmp_1 = compare_vectors(vec_keys_get, vec_empty_keys);
-
+    __m256i vec_cmp_1 = compare_vectors(inv, vec_empty_keys);
 
     // 统计 vec_cmp_1 中的非零元素个数
-    const int *cmp_1_ptr = reinterpret_cast<const int *>(&vec_cmp_1);
-    size_ -= mm256_sum_epi32(cmp_1_ptr, SIMD_WIDTH);
+    int mask = _mm256_movemask_epi8(vec_cmp_1);
+    int valid_count = __builtin_popcount(mask);
+    i +=  valid_count;
 
     // 检测两个 key 是否相同 => -1
     __m256i vec_cmp_2 = compare_vectors(vec_keys_get, vec_input_keys);
-
-
-    // vec_cmp_1 | vec_cmp_2 => -1 / 0
     __m256i vec_cmp = _mm256_or_si256(vec_cmp_1, vec_cmp_2);
 
-
-    // TODO
     // int *keys_get_ptr = reinterpret_cast<int *>(&vec_keys_get); // 哈希表中的 key
     int *idx_ptr = reinterpret_cast<int *>(&vec_idx); // 哈希表中的 idx
-    __m256i vec_cmp_3 = _mm256_setzero_si256();
+    __m256i vec_cmp_3 = _mm256_set1_epi32(-1);
     int *cmp_ptr_3 = reinterpret_cast<int *>(&vec_cmp_3);
     for (int j = 0; j < SIMD_WIDTH; j++) {
       if (keys_[idx_ptr[j]] == EMPTY_KEY) {
         keys_[idx_ptr[j]] = tmp_keys[j];
-        cmp_ptr_3[j] = -1;
+        values_[idx_ptr[j]] = tmp_values[j];
+        size_++;
       } else if (keys_[idx_ptr[j]] == tmp_keys[j]){
-        cmp_ptr_3[j] = -1;
+        values_[idx_ptr[j]] += tmp_values[j];
       } else {
         cmp_ptr_3[j] = 0;
       }
@@ -361,8 +355,8 @@ void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_val
 
 
     // 将 inv 转换为 const int *
-    const int *inv_ptr = reinterpret_cast<const int *>(&inv);
-    i -= mm256_sum_epi32(inv_ptr, SIMD_WIDTH);
+    // const int *inv_ptr = reinterpret_cast<const int *>(&inv);
+    // i -= mm256_sum_epi32(inv_ptr, SIMD_WIDTH);
 
     // std::cout << "i2: " << i << std::endl;
 
@@ -372,10 +366,10 @@ void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_val
     off = _mm256_add_epi32(off, _mm256_add_epi32(_mm256_set1_epi32(1), vec_cmp));
 
     // 对 vec_cmp 为 1 的元素，则 vec_aggregate 相应元素 +vec_input_values；否则vec_aggregate 相应元素 +0
-    __m256i vec_zero = _mm256_setzero_si256();
-    __m256i vec_aggregate = _mm256_blendv_epi8(vec_zero, vec_input_values, vec_cmp);
+    // __m256i vec_zero = _mm256_setzero_si256();
+    // __m256i vec_aggregate = _mm256_blendv_epi8(vec_zero, vec_input_values, vec_cmp);
 
-    scatter_epi32(values_.data(), vec_idx, vec_aggregate);
+    // scatter_epi32(values_.data(), vec_idx, vec_aggregate);
   }
   // int *inv_ptr = reinterpret_cast<int *>(&inv);
   // for (int j = 0; j < SIMD_WIDTH; j++) {
@@ -434,25 +428,25 @@ void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_val
   
   
   // 标量线性探测
-  // for (int i=0;i < len; i++) {
-  //   int key = input_keys[i];
-  //   V value = input_values[i];
-  //   int index = (key % capacity_ + capacity_) % capacity_;
-  //   while (true) {
-  //     if (keys_[index] == EMPTY_KEY) {
-  //       keys_[index] = key;
-  //       values_[index] = value;
-  //       size_ +=1;
-  //       break;
-  //     } else if (keys_[index] == key) {
-  //       aggregate(&values_[index], value);
-  //       size_ +=1;
-  //       break;
-  //     } else {
-  //       index = (index + 1) % capacity_;
-  //     }
-  //   }
-  // }
+  for (;i < len; i++) {
+    int key = input_keys[i];
+    V value = input_values[i];
+    int index = (key % capacity_ + capacity_) % capacity_;
+    while (true) {
+      if (keys_[index] == EMPTY_KEY) {
+        keys_[index] = key;
+        values_[index] = value;
+        size_ +=1;
+        break;
+      } else if (keys_[index] == key) {
+        aggregate(&values_[index], value);
+        size_ +=1;
+        break;
+      } else {
+        index = (index + 1) % capacity_;
+      }
+    }
+  }
 
   // size_ = 8;
   // std::cout << "current size_: " << size_ << std::endl;
