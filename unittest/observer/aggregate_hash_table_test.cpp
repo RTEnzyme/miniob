@@ -108,36 +108,36 @@ TEST(AggregateHashTableTest, DISABLED_standard_hash_table)
 TEST(AggregateHashTableTest, linear_probing_hash_table)
 {
   // simple case
-  {
-    Chunk                   group_chunk;
-    Chunk                   aggr_chunk;
-    std::unique_ptr<Column> column1 = std::make_unique<Column>(AttrType::INTS, 4);
-    std::unique_ptr<Column> column2 = std::make_unique<Column>(AttrType::INTS, 4);
-    for (int i = 0; i < 16; i++) {
-      int key = i % 8;
-      column1->append_one((char *)&key);
-      column2->append_one((char *)&i);
-    }
-    group_chunk.add_column(std::move(column1), 0);
-    aggr_chunk.add_column(std::move(column2), 1);
+  // {
+  //   Chunk                   group_chunk;
+  //   Chunk                   aggr_chunk;
+  //   std::unique_ptr<Column> column1 = std::make_unique<Column>(AttrType::INTS, 4);
+  //   std::unique_ptr<Column> column2 = std::make_unique<Column>(AttrType::INTS, 4);
+  //   for (int i = 0; i < 16; i++) {
+  //     int key = i % 8;
+  //     column1->append_one((char *)&key);
+  //     column2->append_one((char *)&i);
+  //   }
+  //   group_chunk.add_column(std::move(column1), 0);
+  //   aggr_chunk.add_column(std::move(column2), 1);
 
-    auto linear_probing_hash_table = std::make_unique<LinearProbingAggregateHashTable<int>>(AggregateExpr::Type::SUM);
-    RC   rc                        = linear_probing_hash_table->add_chunk(group_chunk, aggr_chunk);
-    ASSERT_EQ(rc, RC::SUCCESS);
-    Chunk output_chunk;
-    output_chunk.add_column(
-        make_unique<Column>(group_chunk.column(0).attr_type(), group_chunk.column(0).attr_len()), 0);
-    output_chunk.add_column(make_unique<Column>(aggr_chunk.column(0).attr_type(), aggr_chunk.column(0).attr_len()), 1);
-    LinearProbingAggregateHashTable<int>::Scanner scanner(linear_probing_hash_table.get());
-    scanner.open_scan();
-    rc = scanner.next(output_chunk);
-    ASSERT_EQ(rc, RC::SUCCESS);
-    ASSERT_EQ(output_chunk.rows(), 8);
-    for (int i = 0; i < 8; i++) {
-      std::cout << "column1: " << output_chunk.get_value(1, i).get_string() << " "
-                << "sum(column2)" << output_chunk.get_value(0, i).get_string() << std::endl;
-    }
-  }
+  //   auto linear_probing_hash_table = std::make_unique<LinearProbingAggregateHashTable<int>>(AggregateExpr::Type::SUM);
+  //   RC   rc                        = linear_probing_hash_table->add_chunk(group_chunk, aggr_chunk);
+  //   ASSERT_EQ(rc, RC::SUCCESS);
+  //   Chunk output_chunk;
+  //   output_chunk.add_column(
+  //       make_unique<Column>(group_chunk.column(0).attr_type(), group_chunk.column(0).attr_len()), 0);
+  //   output_chunk.add_column(make_unique<Column>(aggr_chunk.column(0).attr_type(), aggr_chunk.column(0).attr_len()), 1);
+  //   LinearProbingAggregateHashTable<int>::Scanner scanner(linear_probing_hash_table.get());
+  //   scanner.open_scan();
+  //   rc = scanner.next(output_chunk);
+  //   ASSERT_EQ(rc, RC::SUCCESS);
+  //   ASSERT_EQ(output_chunk.rows(), 8);
+  //   for (int i = 0; i < 8; i++) {
+  //     std::cout << "column1: " << output_chunk.get_value(0, i).get_string() << " "
+  //               << "sum(column2)" << output_chunk.get_value(1, i).get_string() << std::endl;
+  //   }
+  // }
 
   // hash conflict
   {

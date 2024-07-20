@@ -92,8 +92,28 @@ void selective_load(V *memory, int offset, V *vec, __m256i &inv)
     } 
   }
 }
+template <typename V>
+void selective_load_left(V *memory, int offset, V *vec, __m256i &inv, int len)
+{
+  int *inv_ptr = reinterpret_cast<int *>(&inv);
+  for (int i = 0; i < SIMD_WIDTH; i++) {
+    // 需要读
+    if (inv_ptr[i] == -1) {
+      if (offset + 1 < len) {
+        vec[i] = memory[offset++];
+      } else {
+        vec[i] = 0xffffffff;
+      }
+    }
+  }
+}
 template void selective_load<uint32_t>(uint32_t *memory, int offset, uint32_t *vec, __m256i &inv);
 template void selective_load<int>(int *memory, int offset, int *vec, __m256i &inv);
 template void selective_load<float>(float *memory, int offset, float *vec, __m256i &inv);
+
+
+template void selective_load_left<uint32_t>(uint32_t *memory, int offset, uint32_t *vec, __m256i &inv, int len);
+template void selective_load_left<int>(int *memory, int offset, int *vec, __m256i &inv, int len);
+template void selective_load_left<float>(float *memory, int offset, float *vec, __m256i &inv, int len);
 
 #endif

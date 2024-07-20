@@ -132,6 +132,7 @@ template <typename V>
 RC LinearProbingAggregateHashTable<V>::Scanner::next(Chunk &output_chunk)
 {
   if (scan_pos_ >= capacity_ || scan_count_ >= size_) {
+    std::cout << "scan_pos_: " << scan_pos_ << ", capacity_: " << capacity_ << ", scan_count_: " << scan_count_ << ", size_: " << size_ << std::endl;
     return RC::RECORD_EOF;
   }
   auto linear_probing_hash_table = static_cast<LinearProbingAggregateHashTable *>(hash_table_);
@@ -263,7 +264,7 @@ void scatter_epi32(V *keys_ptr, __m256i vec_idx, __m256i vec_keys_get) {
 
     // 按索引将值存储到 keys_ptr 中
     for (int i = 0; i < SIMD_WIDTH; i++) {
-        keys_ptr[idx[i]] = keys[i];
+        keys_ptr[idx[i]] += keys[i];
     }
 }
 
@@ -271,198 +272,190 @@ __m256i compare_vectors(__m256i vec_1, __m256i vec_2) {
     // 使用比较指令比较两个向量的元素
     __m256i vec_cmp = _mm256_cmpeq_epi32(vec_1, vec_2);
 
-    // 将比较结果转换为1和0，_mm256_blendv_epi8可以选择两个向量中的值进行混合
-    // __m256i vec_one = _mm256_set1_epi32(1);
-    // __m256i vec_zero = _mm256_setzero_si256();
-    // __m256i vec_result = _mm256_blendv_epi8(vec_zero, vec_one, vec_cmp);
-
     return vec_cmp;
 }
+
+void print__mm256i(__m256i vec, string prefix) {
+    int *ptr = (int *)&vec;
+    std::cout << prefix << ": ";
+    for (int i = 0; i < SIMD_WIDTH; i++) {
+        std::cout << ptr[i] << " ";
+    }
+    std::cout << std::endl;
+}
+
 
 template <typename V>
 void LinearProbingAggregateHashTable<V>::add_batch(int *input_keys, V *input_values, int len)
 {
-  // // 输出 input_keys 和 input_values
-  // for (int i = 0; i < len; i++) {
-  //   std::cout << "input_keys: " << input_keys[i] << std::endl;
-  // }
-  // std::cout << std::endl;
-  // for (int i = 0; i < len; i++) {
-  //   std::cout << "input_values: " << input_values[i] << std::endl;
-  // }
-  // std::cout << std::endl;
+  // TODO
+  __m256i inv = _mm256_set1_epi32(-1);
+  __m256i off = _mm256_set1_epi32(0);
+  int i = 0;
+  int tmp_keys[SIMD_WIDTH];
+  V tmp_values[SIMD_WIDTH];
 
-  // // TODO
-  // __m256i inv = _mm256_set1_epi32(-1);
-  // __m256i off = _mm256_set1_epi32(0);
-  // int i = 0;
-  // for (; i + SIMD_WIDTH <= len;) {
-  //   // 读数据
-  //   int tmp_keys[SIMD_WIDTH];
-  //   selective_load(input_keys, i, tmp_keys, inv);
-
-  //   // 输出 tmp_keys
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "tmp_keys: " << tmp_keys[j] << std::endl;
-  //   }
+  for (; i + SIMD_WIDTH <= len;) {
+    // std::cout << "i: " << i << std::endl;
+    // 读数据
+    selective_load(input_keys, i, tmp_keys, inv);
+    __m256i vec_input_keys = _mm256_loadu_si256((__m256i const *)tmp_keys);
     
+    selective_load(input_values, i, tmp_values, inv);
+    __m256i vec_input_values = _mm256_loadu_si256((__m256i const *)tmp_values);
 
-  //   __m256i vec_input_keys = _mm256_loadu_si256((__m256i const *)tmp_keys);
 
-  //   // 输出 vec_input_keys
-  //   int *tmp_keys_ptr = reinterpret_cast<int *>(&vec_input_keys);
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_input_keys: " << tmp_keys_ptr[j] << std::endl;
+
+    // 计算哈希
+    __m256i vec_idx = calculate_hash_and_mod(vec_input_keys, capacity_);
+    // vec_idx = vec_idx + off
+    vec_idx = _mm256_add_epi32(vec_idx, off);
+
+    // 从 keys_ 和 values_ 中取出 key 和 value
+    int* keys_ptr = keys_.data();
+    __m256i vec_keys_get = _mm256_i32gather_epi32(keys_ptr, vec_idx, 4);
+
+
+    // V* values_ptr = values_.data();
+    // __m256i vec_values_get = _mm256_i32gather_epi32(values_ptr, vec_idx, 4); // float 和 int 都是 4 字节
+
+    // 检测是否为 EMPTY_KEY => -1
+    __m256i vec_empty_keys = _mm256_set1_epi32(EMPTY_KEY);
+    __m256i vec_cmp_1 = compare_vectors(vec_keys_get, vec_empty_keys);
+
+
+    // 统计 vec_cmp_1 中的非零元素个数
+    const int *cmp_1_ptr = reinterpret_cast<const int *>(&vec_cmp_1);
+    size_ -= mm256_sum_epi32(cmp_1_ptr, SIMD_WIDTH);
+
+    // 检测两个 key 是否相同 => -1
+    __m256i vec_cmp_2 = compare_vectors(vec_keys_get, vec_input_keys);
+
+
+    // vec_cmp_1 | vec_cmp_2 => -1 / 0
+    __m256i vec_cmp = _mm256_or_si256(vec_cmp_1, vec_cmp_2);
+
+
+    // TODO
+    // int *keys_get_ptr = reinterpret_cast<int *>(&vec_keys_get); // 哈希表中的 key
+    int *idx_ptr = reinterpret_cast<int *>(&vec_idx); // 哈希表中的 idx
+    __m256i vec_cmp_3 = _mm256_setzero_si256();
+    int *cmp_ptr_3 = reinterpret_cast<int *>(&vec_cmp_3);
+    for (int j = 0; j < SIMD_WIDTH; j++) {
+      if (keys_[idx_ptr[j]] == EMPTY_KEY) {
+        keys_[idx_ptr[j]] = tmp_keys[j];
+        cmp_ptr_3[j] = -1;
+      } else if (keys_[idx_ptr[j]] == tmp_keys[j]){
+        cmp_ptr_3[j] = -1;
+      } else {
+        cmp_ptr_3[j] = 0;
+      }
+      // std::cout << "idx: " << idx_ptr[j] << ", key: " << keys_[idx_ptr[j]] << ", value: " << values_[idx_ptr[j]] << endl;
+    }
+
+    // 计算 vec_cmp 
+    vec_cmp = _mm256_and_si256(vec_cmp, vec_cmp_3);
+
+
+    inv = vec_cmp;
+
+
+    // 将 inv 转换为 const int *
+    const int *inv_ptr = reinterpret_cast<const int *>(&inv);
+    i -= mm256_sum_epi32(inv_ptr, SIMD_WIDTH);
+
+    // std::cout << "i2: " << i << std::endl;
+
+    // off + (1+vec_cmp)
+    // 清空 inv 为 -1 的位
+    off = _mm256_blendv_epi8(off, _mm256_set1_epi32(0), vec_cmp);
+    off = _mm256_add_epi32(off, _mm256_add_epi32(_mm256_set1_epi32(1), vec_cmp));
+
+    // 对 vec_cmp 为 1 的元素，则 vec_aggregate 相应元素 +vec_input_values；否则vec_aggregate 相应元素 +0
+    __m256i vec_zero = _mm256_setzero_si256();
+    __m256i vec_aggregate = _mm256_blendv_epi8(vec_zero, vec_input_values, vec_cmp);
+
+    scatter_epi32(values_.data(), vec_idx, vec_aggregate);
+  }
+  // int *inv_ptr = reinterpret_cast<int *>(&inv);
+  // for (int j = 0; j < SIMD_WIDTH; j++) {
+  //   if (inv_ptr[j] == 0) {
+  //     int key = tmp_keys[j];
+  //     V value = tmp_values[j];
+  //     int index = (key % capacity_ + capacity_) % capacity_;
+  //     while (true) {
+  //       if (keys_[index] == EMPTY_KEY) {
+  //         keys_[index] = key;
+  //         values_[index] = value;
+  //         size_ +=1;
+  //         break;
+  //       } else if (keys_[index] == key) {
+  //         aggregate(&values_[index], value);
+  //         // std::cout << "idx: " << index << ", key: " << keys_[index] << ", value: " << values_[index] << std::endl;
+  //         size_ +=1;
+  //         break;
+  //       } else {
+  //         index = (index + 1) % capacity_;
+  //       }
+  //     }
+  //     i += 1;
+  //   }   
+  // }
+
+  // int left_keys[SIMD_WIDTH];
+  // V left_values[SIMD_WIDTH];
+  // inv = _mm256_set1_epi32(-1);
+  // // std::cout << "i: " << i << std::endl;
+  // selective_load_left(input_keys, i, left_keys, inv, len);
+  // selective_load_left(input_values, i, left_values, inv, len);
+  // for (int j = 0; j < SIMD_WIDTH; j++) {
+  //   int key = left_keys[j];
+  //   if (key == EMPTY_KEY) {
+  //     continue;
   //   }
-    
-  //   V tmp_values[SIMD_WIDTH];
-  //   selective_load(input_values, i, tmp_values, inv);
-  //   __m256i vec_input_values = _mm256_loadu_si256((__m256i const *)tmp_values);
-
-  //   // 输出 tmp_values
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "tmp_values: " << tmp_values[j] << std::endl;
+  //   V value = left_values[j];
+  //   int index = (key % capacity_ + capacity_) % capacity_;
+  //   while (true) {
+  //     if (keys_[index] == EMPTY_KEY) {
+  //       keys_[index] = key;
+  //       values_[index] = value;
+  //       size_ +=1;
+  //       break;
+  //     } else if (keys_[index] == key) {
+  //       aggregate(&values_[index], value);
+  //       // std::cout << "idx: " << index << ", key: " << keys_[index] << ", value: " << values_[index] << std::endl;
+  //       size_ +=1;
+  //       break;
+  //     } else {
+  //       index = (index + 1) % capacity_;
+  //     }
   //   }
-
-
-
-  //   // 计算哈希
-  //   __m256i vec_idx = calculate_hash_and_mod(vec_input_keys, capacity_);
-
-  //   // 输出 vec_idx
-  //   int *idx = (int *)&vec_idx;
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_idx: " << idx[j] << ", capacity: " << capacity_ << std::endl;
-  //   }
-
-  //   // 取出 key 和 value
-  //   int* keys_ptr = keys_.data();
-  //   __m256i vec_keys_get = _mm256_i32gather_epi32(keys_ptr, vec_idx, 4);
-
-  //   // 输出 vec_keys_get
-  //   int *keys_get = (int *)&vec_keys_get;
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_keys_get: " << keys_get[j] << std::endl;
-  //   }
-
-  //   V* values_ptr = values_.data();
-  //   __m256i vec_values_get = _mm256_i32gather_epi32(values_ptr, vec_idx, 4); // float 和 int 都是 4 字节
-
-  //   // 输出 vec_values_get
-  //   int *values_get = (int *)&vec_values_get;
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_values_get: " << values_get[j] << std::endl;
-  //   }
-
-  //   __m256i vec_empty_keys = _mm256_set1_epi32(EMPTY_KEY);
-
-  //   // 输出 vec_empty_keys
-  //   int *empty_keys = (int *)&vec_empty_keys;
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_empty_keys: " << empty_keys[j] << std::endl;
-  //   }
-
-
-  //   // 比较 vec_keys_get 和 vec_empty_keys，相同为 -1，不同为 0
-  //   __m256i vec_cmp_1 = compare_vectors(vec_keys_get, vec_empty_keys);
-
-  //   // 输出 vec_cmp_1
-  //   int *cmp_1 = (int *)&vec_cmp_1;
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_cmp_1: " << cmp_1[j] << std::endl;
-  //   }
-
-  //   // 相同为 -1，不同为 0
-  //   __m256i vec_cmp_2 = compare_vectors(vec_keys_get, vec_input_keys);
-
-  //   // 输出 vec_cmp_2
-  //   int *cmp_2 = (int *)&vec_cmp_2;
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_cmp_2: " << cmp_2[j] << std::endl;
-  //   }
-
-
-  //   // vec_cmp_1 | vec_cmp_2
-  //   __m256i vec_cmp = _mm256_or_si256(vec_cmp_1, vec_cmp_2);
-
-  //   // 输出 vec_cmp
-  //   int *cmp = (int *)&vec_cmp;
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_cmp: " << cmp[j] << std::endl;
-  //   }
-
-  //   // 探测到 -> -1; 未探测到 -> 0
-  //   // inv + (1+vec_cmp)
-  //   inv = _mm256_add_epi32(inv, _mm256_add_epi32(_mm256_set1_epi32(1), vec_cmp));
-
-
-  //   // 将 inv 转换为 const int *
-  //   const int *inv_ptr = reinterpret_cast<const int *>(&inv);
-  //   i -= mm256_sum_epi32(inv_ptr, SIMD_WIDTH);
-  //   size_ -= mm256_sum_epi32(inv_ptr, SIMD_WIDTH);
-
-  //   // off + (1+vec_cmp)
-  //   off = _mm256_add_epi32(off, _mm256_add_epi32(_mm256_set1_epi32(1), vec_cmp));
-
-  //   // 输出 inv 和 off
-  //   int *inv_ptr_1 = reinterpret_cast<int *>(&inv);
-  //   int *off_ptr = reinterpret_cast<int *>(&off);
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "inv: " << inv_ptr_1[j] << ", off: " << off_ptr[j] << std::endl;
-  //   }
-
-
-  //   // 对 vec_cmp 为 1 的元素，则 vec_aggregate 相应元素 +vec_input_values；否则vec_aggregate 相应元素 +0
-  //   __m256i vec_zero = _mm256_setzero_si256();
-  //   __m256i vec_aggregate = _mm256_blendv_epi8(vec_zero, vec_input_values, vec_cmp);
-  //   // __m256i vec_aggregate = _mm256_and_si256(vec_cmp, vec_input_values);
-
-  //   // 输出 vec_aggregate
-  //   int *aggregate = (int *)&vec_aggregate;
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_aggregate: " << aggregate[j] << std::endl;
-  //   }
-
-  //   vec_values_get = _mm256_add_epi32(vec_values_get, vec_aggregate);
-  //   vec_keys_get = _mm256_blendv_epi8(vec_keys_get, vec_input_keys, vec_cmp);
-
-  //   // 输出 vec_keys_get 和 vec_values_get
-  //   keys_get = (int *)&vec_keys_get;
-  //   values_get = (int *)&vec_values_get;
-  //   for (int j = 0; j < SIMD_WIDTH; j++) {
-  //     std::cout << "vec_keys_get: " << keys_get[j] << ", vec_values_get: " << values_get[j] << std::endl;
-  //   }
-
-
-  //   // 更新 keys 和 values
-  //   // _mm256_i32scatter_epi32(keys_ptr, vec_idx, vec_keys_get, 4);
-  //   // _mm256_i32scatter_epi32(values_ptr, vec_idx, vec_values_get, 4);
-  //   scatter_epi32(keys_.data(), vec_idx, vec_keys_get);
-  //   scatter_epi32(values_.data(), vec_idx, vec_values_get);
-
   // }
   
-  // 处理剩余的数据
-  for (int i = 0; i < len; i++) {
-    int key = input_keys[i];
-    V value = input_values[i];
-    int index = (key % capacity_ + capacity_) % capacity_;
-    while (true) {
-      if (keys_[index] == EMPTY_KEY) {
-        keys_[index] = key;
-        values_[index] = value;
-        size_ +=1;
-        break;
-      } else if (keys_[index] == key) {
-        aggregate(&values_[index], value);
-        size_ +=1;
-        break;
-      } else {
-        index = (index + 1) % capacity_;
-      }
-    }
-  }
+  
+  // 标量线性探测
+  // for (int i=0;i < len; i++) {
+  //   int key = input_keys[i];
+  //   V value = input_values[i];
+  //   int index = (key % capacity_ + capacity_) % capacity_;
+  //   while (true) {
+  //     if (keys_[index] == EMPTY_KEY) {
+  //       keys_[index] = key;
+  //       values_[index] = value;
+  //       size_ +=1;
+  //       break;
+  //     } else if (keys_[index] == key) {
+  //       aggregate(&values_[index], value);
+  //       size_ +=1;
+  //       break;
+  //     } else {
+  //       index = (index + 1) % capacity_;
+  //     }
+  //   }
+  // }
 
+  // size_ = 8;
+  // std::cout << "current size_: " << size_ << std::endl;
   
 
   // inv (invalid) 表示是否有效，inv[i] = -1 表示有效，inv[i] = 0 表示无效。

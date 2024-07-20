@@ -281,12 +281,12 @@ protected:
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct DISABLED_InsertionBenchmark : public BenchmarkBase
+struct InsertionBenchmark : public BenchmarkBase
 {
   string Name() const override { return "insertion"; }
 };
 
-BENCHMARK_DEFINE_F(DISABLED_InsertionBenchmark, Insertion)(State &state)
+BENCHMARK_DEFINE_F(InsertionBenchmark, Insertion)(State &state)
 {
   IntegerGenerator generator(1, 1 << 31);
   Stat             stat;
@@ -300,7 +300,7 @@ BENCHMARK_DEFINE_F(DISABLED_InsertionBenchmark, Insertion)(State &state)
   state.counters["other"]   = Counter(stat.insert_other_count, Counter::kIsRate);
 }
 
-BENCHMARK_REGISTER_F(DISABLED_InsertionBenchmark, Insertion)->Threads(10);
+BENCHMARK_REGISTER_F(InsertionBenchmark, Insertion)->Threads(10);
 
 ////////////////////////////////////////////////////////////////////////////////
 

@@ -25,4 +25,7 @@ float mm256_sum_ps(const float *values, int size);
 /// @brief selective load 的标量实现
 template <typename V>
 void selective_load(V *memory, int offset, V *vec, __m256i &inv);
+
+template <typename V>
+void selective_load_left(V *memory, int offset, V *vec, __m256i &inv, int len);
 #endif
